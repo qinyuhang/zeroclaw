@@ -7,7 +7,7 @@
 //! - Request timeouts (30s) to prevent slow-loris attacks
 //! - Header sanitization (handled by axum/hyper)
 
-use crate::channels::{Channel, WhatsAppChannel};
+use crate::channels::{Channel, LarkChannel, WhatsAppChannel};
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::providers::{self, Provider};
@@ -43,6 +43,7 @@ pub struct AppState {
     pub webhook_secret: Option<Arc<str>>,
     pub pairing: Arc<PairingGuard>,
     pub whatsapp: Option<Arc<WhatsAppChannel>>,
+    pub lark: Option<Arc<LarkChannel>>,
 }
 
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
@@ -98,6 +99,17 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             ))
         });
 
+    // Lark/Feishu channel (if configured)
+    let lark_channel: Option<Arc<LarkChannel>> = config.channels_config.lark.as_ref().map(|lk| {
+        Arc::new(LarkChannel::new(
+            lk.app_id.clone(),
+            lk.app_secret.clone(),
+            lk.verify_token.clone(),
+            lk.domain.clone(),
+            lk.allowed_users.clone(),
+        ))
+    });
+
     // ── Pairing guard ──────────────────────────────────────
     let pairing = Arc::new(PairingGuard::new(
         config.gateway.require_pairing,
@@ -132,6 +144,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         println!("  GET  /whatsapp  — Meta webhook verification");
         println!("  POST /whatsapp  — WhatsApp message webhook");
     }
+    if lark_channel.is_some() {
+        println!("  POST /lark      — Feishu/Lark event subscription webhook");
+    }
     println!("  GET  /health    — health check");
     if let Some(code) = pairing.pairing_code() {
         println!();
@@ -162,6 +177,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         webhook_secret,
         pairing,
         whatsapp: whatsapp_channel,
+        lark: lark_channel,
     };
 
     // Build router with middleware
@@ -171,6 +187,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/webhook", post(handle_webhook))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
+        .route("/lark", post(handle_lark))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
         .layer(TimeoutLayer::with_status_code(
@@ -419,6 +436,92 @@ async fn handle_whatsapp_message(State(state): State<AppState>, body: Bytes) -> 
     }
 
     // Acknowledge the webhook
+    (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
+}
+
+/// POST /lark — Feishu/Lark event subscription webhook
+///
+/// Handles:
+/// 1. URL verification: {"type":"url_verification","challenge":"xxx"} -> {"challenge":"xxx"}
+/// 2. Event callback: im.message.receive_v1 -> process message, reply via LLM
+async fn handle_lark(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
+    let Some(ref lk) = state.lark else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Lark not configured"})),
+        );
+    };
+
+    let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid JSON payload"})),
+        );
+    };
+
+    // URL verification (Feishu sends this when configuring event subscription)
+    if let Some(challenge) = LarkChannel::parse_url_verification(&payload) {
+        tracing::info!("Lark URL verification successful");
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "challenge": challenge })),
+        );
+    }
+
+    // Event callback
+    let messages = lk.parse_webhook_payload(&payload);
+
+    if messages.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"status": "ok"})),
+        );
+    }
+
+    for msg in &messages {
+        tracing::info!(
+            "Lark message from {}: {}",
+            msg.sender,
+            if msg.content.len() > 50 {
+                format!("{}...", &msg.content[..50])
+            } else {
+                msg.content.clone()
+            }
+        );
+
+        if state.auto_save {
+            let _ = state
+                .mem
+                .store(
+                    &format!("lark_{}", msg.sender),
+                    &msg.content,
+                    MemoryCategory::Conversation,
+                )
+                .await;
+        }
+
+        match state
+            .provider
+            .chat(&msg.content, &state.model, state.temperature)
+            .await
+        {
+            Ok(response) => {
+                if let Err(e) = lk.send(&response, &msg.sender).await {
+                    tracing::error!("Failed to send Lark reply: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::error!("LLM error for Lark message: {e:#}");
+                let _ = lk
+                    .send(
+                        "Sorry, I couldn't process your message right now.",
+                        &msg.sender,
+                    )
+                    .await;
+            }
+        }
+    }
+
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
 }
 

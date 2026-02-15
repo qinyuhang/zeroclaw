@@ -537,6 +537,8 @@ pub struct ChannelsConfig {
     pub imessage: Option<IMessageConfig>,
     pub matrix: Option<MatrixConfig>,
     pub whatsapp: Option<WhatsAppConfig>,
+    #[serde(default)]
+    pub lark: Option<LarkConfig>,
 }
 
 impl Default for ChannelsConfig {
@@ -550,6 +552,7 @@ impl Default for ChannelsConfig {
             imessage: None,
             matrix: None,
             whatsapp: None,
+            lark: None,
         }
     }
 }
@@ -607,6 +610,26 @@ pub struct WhatsAppConfig {
     /// Allowed phone numbers (E.164 format: +1234567890) or "*" for all
     #[serde(default)]
     pub allowed_numbers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LarkConfig {
+    /// App ID from Feishu/Lark Open Platform (format: cli_xxx)
+    pub app_id: String,
+    /// App Secret from Feishu/Lark Open Platform
+    pub app_secret: String,
+    /// Verification token for URL verification (must match Feishu Console config)
+    pub verify_token: String,
+    /// API domain: "feishu" (China) or "lark" (international)
+    #[serde(default = "default_lark_domain")]
+    pub domain: String,
+    /// Allowed user open_ids (ou_xxx) or "*" for all
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+}
+
+fn default_lark_domain() -> String {
+    "feishu".into()
 }
 
 // ── Config impl ──────────────────────────────────────────────────
@@ -726,10 +749,15 @@ impl Config {
             }
         }
 
-        // Workspace directory: ZEROCLAW_WORKSPACE
+        // Workspace directory: ZEROCLAW_WORKSPACE (also sets config_path for Docker)
         if let Ok(workspace) = std::env::var("ZEROCLAW_WORKSPACE") {
             if !workspace.is_empty() {
-                self.workspace_dir = PathBuf::from(workspace);
+                let ws = PathBuf::from(&workspace);
+                self.workspace_dir = ws.clone();
+                // Config lives alongside workspace: <parent>/config.toml
+                self.config_path = ws
+                    .parent()
+                    .map_or_else(|| ws.join("config.toml"), |p| p.join("config.toml"));
             }
         }
 
@@ -868,6 +896,7 @@ mod tests {
                 imessage: None,
                 matrix: None,
                 whatsapp: None,
+                lark: None,
             },
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
@@ -1080,6 +1109,7 @@ default_temperature = 0.7
                 allowed_users: vec!["@u:m".into()],
             }),
             whatsapp: None,
+            lark: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();

@@ -1051,6 +1051,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
         imessage: None,
         matrix: None,
         whatsapp: None,
+        lark: None,
     };
 
     loop {

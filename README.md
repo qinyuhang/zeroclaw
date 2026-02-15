@@ -113,7 +113,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 | Subsystem | Trait | Ships with | Extend |
 |-----------|-------|------------|--------|
 | **AI Models** | `Provider` | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
-| **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, Webhook | Any messaging API |
+| **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, Lark, Webhook | Any messaging API |
 | **Memory** | `Memory` | SQLite with hybrid search (FTS5 + vector cosine similarity), Markdown | Any persistence backend |
 | **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), composio (optional) | Any capability |
 | **Observability** | `Observer` | Noop, Log, Multi | Prometheus, OTel |
@@ -238,6 +238,33 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
    - Subscribe to `messages` field
 
 6. **Test:** Send a message to your WhatsApp Business number — ZeroClaw will respond via the LLM.
+
+### Lark/Feishu Event Subscription Setup
+
+Lark (Feishu) uses HTTP event subscription (webhook) — similar to WhatsApp:
+
+1. **Create an app** at [Feishu Open Platform](https://open.feishu.cn/app) (China) or [Lark Suite](https://open.larksuite.com/app) (international).
+
+2. **Copy credentials** from Credentials & Basic Info: App ID (`cli_xxx`) and App Secret.
+
+3. **Configure permissions** — add at least: `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`.
+
+4. **Enable bot** in App Capability → Bot.
+
+5. **Add to config** (`~/.zeroclaw/config.toml`):
+
+   ```toml
+   [channels_config.lark]
+   app_id = "cli_xxx"
+   app_secret = "your_app_secret"
+   verify_token = "your_verification_token"   # match Feishu Console
+   domain = "feishu"   # or "lark" for international
+   allowed_users = ["ou_xxx"]   # open_id list, or ["*"] for all
+   ```
+
+6. **Event subscription** — Request URL: `https://your-domain/lark`, add event `im.message.receive_v1`. Disable encryption in console for plain JSON (encryption support planned).
+
+7. **Test:** Run `zeroclaw daemon`, send a message to your bot in Feishu/Lark.
 
 ## Configuration
 
@@ -369,6 +396,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 | `/webhook` | POST | `Authorization: Bearer <token>` | Send message: `{"message": "your prompt"}` |
 | `/whatsapp` | GET | Query params | Meta webhook verification (hub.mode, hub.verify_token, hub.challenge) |
 | `/whatsapp` | POST | None (Meta signature) | WhatsApp incoming message webhook |
+| `/lark` | POST | None | Feishu/Lark event subscription (url_verification + im.message.receive_v1) |
 
 ## Commands
 

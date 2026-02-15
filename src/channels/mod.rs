@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod discord;
 pub mod imessage;
+pub mod lark;
 pub mod matrix;
 pub mod slack;
 pub mod telegram;
@@ -10,6 +11,7 @@ pub mod whatsapp;
 pub use cli::CliChannel;
 pub use discord::DiscordChannel;
 pub use imessage::IMessageChannel;
+pub use lark::LarkChannel;
 pub use matrix::MatrixChannel;
 pub use slack::SlackChannel;
 pub use telegram::TelegramChannel;
@@ -273,6 +275,7 @@ pub fn handle_command(command: super::ChannelCommands, config: &Config) -> Resul
                 ("iMessage", config.channels_config.imessage.is_some()),
                 ("Matrix", config.channels_config.matrix.is_some()),
                 ("WhatsApp", config.channels_config.whatsapp.is_some()),
+                ("Lark", config.channels_config.lark.is_some()),
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
@@ -375,6 +378,19 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
                 wa.phone_number_id.clone(),
                 wa.verify_token.clone(),
                 wa.allowed_numbers.clone(),
+            )),
+        ));
+    }
+
+    if let Some(ref lk) = config.channels_config.lark {
+        channels.push((
+            "Lark",
+            Arc::new(LarkChannel::new(
+                lk.app_id.clone(),
+                lk.app_secret.clone(),
+                lk.verify_token.clone(),
+                lk.domain.clone(),
+                lk.allowed_users.clone(),
             )),
         ));
     }
@@ -543,6 +559,16 @@ pub async fn start_channels(config: Config) -> Result<()> {
             wa.phone_number_id.clone(),
             wa.verify_token.clone(),
             wa.allowed_numbers.clone(),
+        )));
+    }
+
+    if let Some(ref lk) = config.channels_config.lark {
+        channels.push(Arc::new(LarkChannel::new(
+            lk.app_id.clone(),
+            lk.app_secret.clone(),
+            lk.verify_token.clone(),
+            lk.domain.clone(),
+            lk.allowed_users.clone(),
         )));
     }
 

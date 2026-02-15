@@ -55,9 +55,27 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
         },
         IntegrationEntry {
             name: "WhatsApp",
-            description: "QR pairing via web bridge",
+            description: "Meta Cloud API via webhook",
             category: IntegrationCategory::Chat,
-            status_fn: |_| IntegrationStatus::ComingSoon,
+            status_fn: |c| {
+                if c.channels_config.whatsapp.is_some() {
+                    IntegrationStatus::Active
+                } else {
+                    IntegrationStatus::Available
+                }
+            },
+        },
+        IntegrationEntry {
+            name: "Lark",
+            description: "Feishu/Lark via HTTP event subscription",
+            category: IntegrationCategory::Chat,
+            status_fn: |c| {
+                if c.channels_config.lark.is_some() {
+                    IntegrationStatus::Active
+                } else {
+                    IntegrationStatus::Available
+                }
+            },
         },
         IntegrationEntry {
             name: "Signal",

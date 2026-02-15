@@ -160,6 +160,21 @@ fn show_integration_info(config: &Config, name: &str) -> Result<()> {
             println!("    HTTP endpoint for external triggers.");
             println!("    Run: zeroclaw gateway");
         }
+        "WhatsApp" => {
+            println!("  Setup:");
+            println!("    1. Create app at Meta for Developers");
+            println!("    2. Add WhatsApp product, get phone_number_id + access_token");
+            println!("    3. Configure webhook URL: https://your-domain/whatsapp");
+            println!("    4. Add [channels.whatsapp] to config.toml");
+        }
+        "Lark" => {
+            println!("  Setup:");
+            println!("    1. Create app at https://open.feishu.cn/app (or open.larksuite.com)");
+            println!("    2. Enable bot, add im:message + im:message:send_as_bot permissions");
+            println!("    3. Event subscription: Request URL = https://your-domain/lark");
+            println!("    4. Add event: im.message.receive_v1");
+            println!("    5. Add [channels.lark] to config.toml");
+        }
         _ => {
             if status == IntegrationStatus::ComingSoon {
                 println!("  This integration is planned. Stay tuned!");
